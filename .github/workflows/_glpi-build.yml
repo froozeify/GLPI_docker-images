@@ -202,8 +202,9 @@ jobs:
           username: "${{ secrets.DOCKER_HUB_USERNAME }}"
           password: "${{ secrets.DOCKER_HUB_TOKEN }}"
       - name: "Create and push manifest"
-        working-directory: "${{ runner.temp }}/digests"
         run: |
+          cd "${{ runner.temp }}/digests"
+          
           # Build the tag arguments
           TAG_ARGS=""
           IFS=',' read -ra TAG_ARRAY <<< "${{ needs.prepare.outputs.tags }}"
@@ -214,8 +215,8 @@ jobs:
           # Create manifest
           docker buildx imagetools create $TAG_ARGS \
             $(printf '${{ env.DOCKERHUB_IMAGE }}@sha256:%s ' *)
-      - name: "Inspect image"
-        run: |
-          # Get first tag for inspection
+          
+          # Inspect image
           FIRST_TAG=$(echo "${{ needs.prepare.outputs.tags }}" | cut -d',' -f1)
           docker buildx imagetools inspect $FIRST_TAG
+
