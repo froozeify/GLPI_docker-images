@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - "main"
-      - "ci-matrix-build-and-cache-update"  # For testing
     paths:
       - ".github/workflows/glpi-nightly.yml"
       - ".github/workflows/_glpi-build.yml"
