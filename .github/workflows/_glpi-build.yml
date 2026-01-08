@@ -118,6 +118,7 @@ jobs:
         with:
           name: "glpi-sources-${{ steps.set-vars.outputs.artifact_prefix }}"
           path: "glpi/"
+          include-hidden-files: true
           retention-days: 1
 
   build:
