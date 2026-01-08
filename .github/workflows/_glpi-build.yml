@@ -4,7 +4,7 @@ name: "GLPI Docker Image Build (Template)"
 # Called by: glpi.yml, glpi-nightly.yml
 
 env:
-  DOCKERHUB_IMAGE: glpi/glpi
+  DOCKERHUB_IMAGE: benoitvignal/glpi_docker-images
 
 on:
   workflow_call:
