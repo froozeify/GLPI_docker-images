@@ -5,7 +5,6 @@ name: "GLPI Docker Image Build (Template)"
 
 env:
   DOCKERHUB_IMAGE: glpi/glpi
-  GHCR_IMAGE: ghcr.io/glpi-project/glpi
 
 on:
   workflow_call:
@@ -14,7 +13,7 @@ on:
         description: "Whether to push images to registries"
         required: false
         type: boolean
-        default: false
+        default: true
       post-extract-commands:
         description: "Custom bash commands to run after source extraction (i.e: patches)"
         required: false
@@ -42,10 +41,6 @@ on:
       DOCKER_HUB_USERNAME:
         required: true
       DOCKER_HUB_TOKEN:
-        required: true
-      GHCR_USERNAME:
-        required: true
-      GHCR_ACCESS_TOKEN:
         required: true
 
 jobs:
@@ -81,7 +76,7 @@ jobs:
           # Compute tags
           if [[ "${{ inputs.image-tag }}" != '' ]]; then
             # Use provided tag directly
-            TAGS="${{ env.DOCKERHUB_IMAGE }}:${{ inputs.image-tag }},${{ env.GHCR_IMAGE }}:${{ inputs.image-tag }}"
+            TAGS="${{ env.DOCKERHUB_IMAGE }}:${{ inputs.image-tag }}"
           else
             # Compute from version
             IMAGE_VERSION="$(echo '${{ inputs.glpi-version }}' | sed -E 's|/|-|')"
@@ -92,16 +87,16 @@ jobs:
               IMAGE_VERSION="$IMAGE_VERSION-${{ inputs.image-suffix }}"
             fi
 
-            TAGS="${{ env.DOCKERHUB_IMAGE }}:$IMAGE_VERSION,${{ env.GHCR_IMAGE }}:$IMAGE_VERSION"
+            TAGS="${{ env.DOCKERHUB_IMAGE }}:$IMAGE_VERSION"
 
             PRERELEASE_FLAG="$( echo "${{ inputs.glpi-version }}" | grep -Po '(\-\w+)?$' )"
             if [[ -z "$PRERELEASE_FLAG" ]]; then
-              TAGS="$TAGS,${{ env.DOCKERHUB_IMAGE }}:$IMAGE_VERSION_MAJOR,${{ env.GHCR_IMAGE }}:$IMAGE_VERSION_MAJOR"
-              TAGS="$TAGS,${{ env.DOCKERHUB_IMAGE }}:$IMAGE_VERSION_MINOR,${{ env.GHCR_IMAGE }}:$IMAGE_VERSION_MINOR"
+              TAGS="$TAGS,${{ env.DOCKERHUB_IMAGE }}:$IMAGE_VERSION_MAJOR"
+              TAGS="$TAGS,${{ env.DOCKERHUB_IMAGE }}:$IMAGE_VERSION_MINOR"
 
               LATEST_TAG="$(curl -s https://api.github.com/repos/glpi-project/glpi/releases/latest | jq -r .tag_name)"
               if [[ "${{ inputs.glpi-version }}" = "$LATEST_TAG" ]]; then
-                TAGS="$TAGS,${{ env.DOCKERHUB_IMAGE }}:latest,${{ env.GHCR_IMAGE }}:latest"
+                TAGS="$TAGS,${{ env.DOCKERHUB_IMAGE }}:latest"
               fi
             fi
           fi
@@ -130,7 +125,6 @@ jobs:
         with:
           images: |
             ${{ env.DOCKERHUB_IMAGE }}
-            ${{ env.GHCR_IMAGE }}
 
       - name: "Get sources from glpi-project/glpi"
         run: |
@@ -155,13 +149,6 @@ jobs:
           username: "${{ secrets.DOCKER_HUB_USERNAME }}"
           password: "${{ secrets.DOCKER_HUB_TOKEN }}"
 
-      - name: "Login to Github container registry"
-        uses: "docker/login-action@v3"
-        with:
-          registry: "ghcr.io"
-          username: "${{ secrets.GHCR_USERNAME }}"
-          password: "${{ secrets.GHCR_ACCESS_TOKEN }}"
-
       - name: "Build and push by digest"
         id: "build"
         uses: "docker/build-push-action@v6"
@@ -178,7 +165,7 @@ jobs:
           labels: "${{ steps.meta.outputs.labels }}"
           platforms: "${{ matrix.platform.arch }}"
           pull: true
-          outputs: "type=image,\"name=${{ env.DOCKERHUB_IMAGE }},${{ env.GHCR_IMAGE }}\",push-by-digest=true,name-canonical=true,push=${{ inputs.push }}"
+          outputs: "type=image,\"name=${{ env.DOCKERHUB_IMAGE }}\",push-by-digest=true,name-canonical=true,push=${{ inputs.push }}"
 
       - name: "Export digest"
         if: ${{ inputs.push }}
@@ -215,12 +202,6 @@ jobs:
         with:
           username: "${{ secrets.DOCKER_HUB_USERNAME }}"
           password: "${{ secrets.DOCKER_HUB_TOKEN }}"
-      - name: "Login to Github container registry"
-        uses: "docker/login-action@v3"
-        with:
-          registry: "ghcr.io"
-          username: "${{ secrets.GHCR_USERNAME }}"
-          password: "${{ secrets.GHCR_ACCESS_TOKEN }}"
       - name: "Create and push manifest"
         working-directory: "${{ runner.temp }}/digests"
         run: |
