@@ -105,6 +105,8 @@ jobs:
           curl https://github.com/glpi-project/glpi/archive/${{ inputs.glpi-version }}.tar.gz --location --output glpi.tar.gz
           mkdir -p glpi/sources
           tar --extract --ungzip --strip 1 --file glpi.tar.gz --directory glpi/sources
+          # Ensure scripts are executable (artifact upload doesn't preserve permissions)
+          find glpi/sources -name "*.sh" -exec chmod +x {} \;
 
       - name: "Run post-extract commands"
         if: ${{ inputs.post-extract-commands != '' }}
