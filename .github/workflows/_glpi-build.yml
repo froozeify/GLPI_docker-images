@@ -194,6 +194,15 @@ jobs:
           path: "${{ runner.temp }}/digests"
           pattern: "digests-*"
           merge-multiple: true
+      - name: "Verify digests"
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          if [ -z "$(ls -A ${{ runner.temp }}/digests)" ]; then
+            echo "::error::No digest files found! Build job may have failed or artifacts expired."
+            exit 1
+          fi
+          echo "Found digests:"
+          ls -la "${{ runner.temp }}/digests"
       - name: "Set up Docker Buildx"
         uses: "docker/setup-buildx-action@v3"
       - name: "Login to DockerHub"
@@ -202,9 +211,8 @@ jobs:
           username: "${{ secrets.DOCKER_HUB_USERNAME }}"
           password: "${{ secrets.DOCKER_HUB_TOKEN }}"
       - name: "Create and push manifest"
+        working-directory: "${{ runner.temp }}/digests"
         run: |
-          cd "${{ runner.temp }}/digests"
-          
           # Build the tag arguments
           TAG_ARGS=""
           IFS=',' read -ra TAG_ARRAY <<< "${{ needs.prepare.outputs.tags }}"
@@ -215,8 +223,9 @@ jobs:
           # Create manifest
           docker buildx imagetools create $TAG_ARGS \
             $(printf '${{ env.DOCKERHUB_IMAGE }}@sha256:%s ' *)
-          
-          # Inspect image
+      - name: "Inspect image"
+        run: |
+          # Get first tag for inspection
           FIRST_TAG=$(echo "${{ needs.prepare.outputs.tags }}" | cut -d',' -f1)
           docker buildx imagetools inspect $FIRST_TAG
 
