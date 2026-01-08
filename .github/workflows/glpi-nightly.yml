@@ -21,7 +21,6 @@ on:
 jobs:
   build-main:
     name: "Build main branch"
-    if: ${{ github.repository == 'glpi-project/docker-images' }}
     uses: ./.github/workflows/_glpi-build.yml
     with:
       # Only push on main branch, schedule, or manual dispatch (not on PR), not a if, so we can test build on PR
@@ -32,7 +31,6 @@ jobs:
 
   build-11:
     name: "Build 11.0/bugfixes branch"
-    if: ${{ github.repository == 'glpi-project/docker-images' }}
     uses: ./.github/workflows/_glpi-build.yml
     with:
       push: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.ref == 'refs/heads/main' }}
@@ -42,7 +40,6 @@ jobs:
 
   build-10:
     name: "Build 10.0/bugfixes branch"
-    if: ${{ github.repository == 'glpi-project/docker-images' }}
     uses: ./.github/workflows/_glpi-build.yml
     with:
       push: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.ref == 'refs/heads/main' }}
