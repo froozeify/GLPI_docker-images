@@ -56,7 +56,7 @@ jobs:
       marketplace-dir: ${{ steps.set-vars.outputs.marketplace_dir }}
       artifact-prefix: ${{ steps.set-vars.outputs.artifact_prefix }}
       is-latest: ${{ steps.set-vars.outputs.is_latest }}
-      is-prerelease: ${{ steps.set-vars.outputs.is_prerelease }}
+      is-latest-major: ${{ steps.set-vars.outputs.is_latest_major }}
       image-version: ${{ steps.set-vars.outputs.image_version }}
     steps:
       - name: "Set variables"
@@ -88,20 +88,36 @@ jobs:
           # Detect prerelease (contains -rc, -beta, -alpha, etc.)
           PRERELEASE_FLAG="$( echo "${{ inputs.glpi-version }}" | grep -Po '(\-\w+)?$' )"
           if [[ -n "$PRERELEASE_FLAG" ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+            echo "is_latest_major=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-          # Check if this is the latest release (only for non-prereleases)
-          IS_LATEST="false"
-          if [[ -z "$PRERELEASE_FLAG" && "${{ inputs.image-tag }}" == '' ]]; then
-            LATEST_TAG="$(curl -s https://api.github.com/repos/glpi-project/glpi/releases/latest | jq -r .tag_name)"
-            if [[ "${{ inputs.glpi-version }}" = "$LATEST_TAG" ]]; then
-              IS_LATEST="true"
-            fi
+          # Skip version checks if image-tag is provided (custom tag)
+          if [[ "${{ inputs.image-tag }}" != '' ]]; then
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+            echo "is_latest_major=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
-          echo "is_latest=$IS_LATEST" >> $GITHUB_OUTPUT
+
+          # Check if this is the latest release overall
+          LATEST_TAG=$(curl -s "https://api.github.com/repos/glpi-project/glpi/releases/latest" | jq -r '.tag_name')
+          if [[ "${{ inputs.glpi-version }}" = "$LATEST_TAG" ]]; then
+            echo "is_latest=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Fetch all releases from GitHub API (non-prerelease only) for major series check
+          RELEASES=$(curl -s "https://api.github.com/repos/glpi-project/glpi/releases?per_page=100" | jq -r '[.[] | select(.prerelease == false) | .tag_name]')
+
+          # Check if this is the latest in its major series (e.g., latest 11.0.x)
+          LATEST_IN_MAJOR=$(echo "$RELEASES" | jq -r --arg major "$IMAGE_VERSION_MAJOR" '[.[] | select(startswith($major + "."))] | .[0] // empty')
+          if [[ "${{ inputs.glpi-version }}" = "$LATEST_IN_MAJOR" ]]; then
+            echo "is_latest_major=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_latest_major=false" >> $GITHUB_OUTPUT
+          fi
 
   build:
     name: "Build [${{ matrix.platform.suffix }}]"
@@ -122,7 +138,7 @@ jobs:
           platform="${{ matrix.platform.arch }}"
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
 
-      - name: "Docker meta"
+      - name: "Docker metadata"
         id: "meta"
         uses: "docker/metadata-action@v5"
         with:
@@ -219,7 +235,7 @@ jobs:
           registry: "ghcr.io"
           username: "${{ secrets.GHCR_USERNAME }}"
           password: "${{ secrets.GHCR_ACCESS_TOKEN }}"
-      - name: "Docker meta"
+      - name: "Docker metadata"
         id: "meta"
         uses: "docker/metadata-action@v5"
         with:
@@ -234,9 +250,10 @@ jobs:
             type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
             # Base version tag (always, when no explicit image-tag)
             type=raw,value=${{ needs.prepare.outputs.image-version }},enable=${{ inputs.image-tag == '' }}
-            # only for releases
-            type=semver,pattern={{major}},value=${{ inputs.glpi-version }},enable=${{ inputs.image-tag == '' && needs.prepare.outputs.is-prerelease == 'false' }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.glpi-version }},enable=${{ inputs.image-tag == '' && needs.prepare.outputs.is-prerelease == 'false' }}
+
+            # Only for releases
+            type=semver,pattern={{major}},value=${{ inputs.glpi-version }},enable=${{ needs.prepare.outputs.is-latest-major == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.glpi-version }},enable=${{ needs.prepare.outputs.is-latest-major == 'true' }}
 
             # Latest
             type=raw,value=latest,enable=${{ needs.prepare.outputs.is-latest == 'true' }}
