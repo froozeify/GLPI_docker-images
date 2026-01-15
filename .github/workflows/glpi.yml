@@ -1,13 +1,29 @@
-name: "GLPI images for official releases"
+name: "GLPI Docker Images"
+
+# Unified workflow for building GLPI Docker images
+# - workflow_call: Called by GLPI repo for releases and nightly builds
+# - workflow_dispatch: Manual builds from this repo
+# - push/pull_request: CI test builds when workflow changes (no push)
+
+env:
+  DOCKERHUB_IMAGE: glpi/glpi
+  GHCR_IMAGE: ghcr.io/glpi-project/glpi
 
 on:
-  # Enable execution from another workflow
+  # Reusable by other repos (e.g., glpi-project/glpi)
   workflow_call:
     inputs:
       glpi-version:
+        description: "GLPI version or branch to build"
         required: true
         type: string
-      image-suffix:
+      push:
+        description: "Whether to push images to registries"
+        required: false
+        type: boolean
+        default: false
+      patch-url:
+        description: "URL to a .diff/.patch file to apply after source download, multiple patches can be separated by space"
         required: false
         type: string
         default: ""
@@ -15,6 +31,16 @@ on:
         required: false
         type: string
         default: "8.5"
+      image-tag:
+        description: "Override image tag. If not set, computed from version."
+        required: false
+        type: string
+        default: ""
+      use-legacy-marketplace-path:
+        description: "Use legacy marketplace path (/var/www/glpi/marketplace) for v10.x builds"
+        required: false
+        type: boolean
+        default: false
     secrets:
       DOCKER_HUB_USERNAME:
         required: true
@@ -25,85 +51,281 @@ on:
       GHCR_ACCESS_TOKEN:
         required: true
 
-  # Enable manual run
-  #
-  # It can be executed by a curl command:
-  #
+  # CI: Test build on workflow changes (images are not pushed to docker registries)
+  push:
+    branches:
+      - "main"
+    paths:
+      - ".github/workflows/glpi.yml"
+      - "glpi/**"
+  pull_request:
+    paths:
+      - ".github/workflows/glpi.yml"
+      - "glpi/**"
+
+  # Manual builds
+  # Can be triggered by curl:
   # curl -X POST \
   # -H "Accept: application/vnd.github.v3+json" \
   # -H "Authorization: <access-token>" \
   # https://api.github.com/repos/glpi-project/docker-images/actions/workflows/<workflow-id>/dispatches \
-  # -d '{"ref":"main", "inputs": { "glpi-version":"10.0.18" }}'
+  # -d '{"ref":"main", "inputs": { "glpi-version":"11.0.5", "push": true }}'
   workflow_dispatch:
     inputs:
+      push:
+        description: "Whether to push images to registries"
+        required: false
+        type: boolean
+        default: false
+      php-version:
+        description: "PHP version to use for the build"
+        required: false
+        type: string
+        default: "8.5"
       glpi-version:
-        description: "GLPI version to build, e.g. 10.0.18"
+        description: "GLPI version (tag: '11.0.5'), branch ('main', '11.0/bugfixes'), commit hash, or URL"
         required: true
         type: string
-      image-suffix:
-        description: "Suffix to add to the image name, e.g. 'nighlty'"
+      image-tag:
+        description: "Override image tag (glpi-version otherwise). i.e: '12.0.0-prebuild-20260615-1'"
         required: false
         type: string
         default: ""
-      php-version:
-        description: "PHP version to use for the build"
-        required: true
+      patch-url:
+        description: "Optional patch URL(s) to apply. Multiple patches: separate with spaces"
+        required: false
         type: string
-        default: "8.5"
+        default: ""
+      use-legacy-marketplace-path:
+        description: "Use legacy marketplace path (/var/www/glpi/marketplace) for v10.x builds"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
-  build:
-    name: "Build GLPI ${{ inputs.glpi-version }}"
+  prepare:
+    name: "Prepare"
     runs-on: "ubuntu-latest"
+    outputs:
+      artifact-prefix: ${{ steps.set-vars.outputs.artifact_prefix }}
+      is-latest: ${{ steps.set-vars.outputs.is_latest }}
+      is-latest-major: ${{ steps.set-vars.outputs.is_latest_major }}
+      cache-key: ${{ steps.set-vars.outputs.cache_key }}
+      image-version: ${{ steps.set-vars.outputs.image_version }}
+      # Unified inputs for all trigger types
+      glpi-version: ${{ steps.set-vars.outputs.glpi_version }}
+      php-version: ${{ steps.set-vars.outputs.php_version }}
+      patch-url: ${{ steps.set-vars.outputs.patch_url }}
+      image-tag: ${{ steps.set-vars.outputs.image_tag }}
+      push: ${{ steps.set-vars.outputs.push }}
+      marketplace-dir: ${{ steps.set-vars.outputs.marketplace_dir }}
     steps:
       - name: "Set variables"
-        id: "variables"
+        id: "set-vars"
         run: |
-          IMAGE_VERSION="$(echo '${{ inputs.glpi-version }}' | sed -E 's|/|-|')"
-          IMAGE_VERSION_MAJOR=$(echo "${{ inputs.glpi-version }}" | cut -d. -f1)
-          IMAGE_VERSION_MINOR=$(echo "${{ inputs.glpi-version }}" | cut -d. -f1-2)
+          # Use inputs when provided, otherwise use defaults (for push/pull_request on this repo)
+          GLPI_VERSION="${{ inputs.glpi-version || 'main' }}"
+          PHP_VERSION="${{ inputs.php-version || '8.5' }}"
+          PUSH="${{ inputs.push || 'false' }}"
+          PATCH_URL="${{ inputs.patch-url || '' }}"
+          IMAGE_TAG="${{ inputs.image-tag || 'docker-image' }}"
 
-          if [[ "${{ inputs.image-suffix }}" != '' ]]; then
-            IMAGE_VERSION="$IMAGE_VERSION-${{ inputs.image-suffix }}"
+          echo "glpi_version=$GLPI_VERSION" >> $GITHUB_OUTPUT
+          echo "php_version=$PHP_VERSION" >> $GITHUB_OUTPUT
+          echo "push=$PUSH" >> $GITHUB_OUTPUT
+          echo "patch_url=$PATCH_URL" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+          # Compute marketplace directory based on boolean use-legacy-marketplace-path input
+          USE_LEGACY_MP_PATH="${{ inputs.use-legacy-marketplace-path || 'false' }}"
+          if [[ "$USE_LEGACY_MP_PATH" = "true" ]]; then
+            echo "marketplace_dir=/var/www/glpi/marketplace" >> $GITHUB_OUTPUT
+          else
+            echo "marketplace_dir=/var/glpi/marketplace" >> $GITHUB_OUTPUT
           fi
 
-          # prepare the tags to push
-          TAGS="glpi/glpi:$IMAGE_VERSION,ghcr.io/glpi-project/glpi:$IMAGE_VERSION"
-
-          PRERELEASE_FLAG="$( echo "${{ inputs.glpi-version }}" | grep -Po '(\-\w+)?$' )"
-          if [[ -z "$PRERELEASE_FLAG" ]]; then
-            # populate major version tags, ex 10.0.18 -> 10
-            TAGS="$TAGS,glpi/glpi:$IMAGE_VERSION_MAJOR,ghcr.io/glpi-project/glpi:$IMAGE_VERSION_MAJOR"
-
-            # populate minor version tags, ex 10.0.18 -> 10.0
-            TAGS="$TAGS,glpi/glpi:$IMAGE_VERSION_MINOR,ghcr.io/glpi-project/glpi:$IMAGE_VERSION_MINOR"
-
-            # find if the current version is the latest
-            if [[ "${{ inputs.glpi-version }}" = "$(curl -s https://api.github.com/repos/glpi-project/glpi/releases/latest | jq -r .tag_name)" ]]; then
-              TAGS="$TAGS,glpi/glpi:latest,ghcr.io/glpi-project/glpi:latest"
-            fi
+          # Determine if glpi-version is a semver tag (e.g., 10.0.18, 11.0.5-rc1)
+          # vs a branch, commit hash, or URL
+          IS_SEMVER=false
+          if echo "$GLPI_VERSION" | grep --quiet --extended-regexp '^[0-9]+\.[0-9]+\.[0-9]+(\-\w+)?$'; then
+            IS_SEMVER=true
           fi
-          echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
-          # compute the marketplace dir
-          MARKETPLACE_DIR="/var/glpi/marketplace"
-          if [[ "$IMAGE_VERSION_MAJOR" = "10" ]]; then
-            MARKETPLACE_DIR="/var/www/glpi/marketplace"
+          # Fetch the commit SHA for this version/branch (for cache-busting)
+          # Same commit = cache hit, new commit = fresh build
+          if echo "$GLPI_VERSION" | grep --quiet --extended-regexp '^https://'; then
+            # For URLs, use a random value to force rebuild, as content behind a URL can change between builds.
+            CACHE_KEY="$(head -200 /dev/urandom | sha1sum | cut --fields 1 --delimiter " ")"
+          elif [[ "$GLPI_VERSION" = "latest" ]]; then
+            # Resolve "latest" to actual tag first, then get commit SHA
+            RESOLVED_TAG=$(curl -s "https://api.github.com/repos/glpi-project/glpi/releases/latest" | jq -r '.tag_name')
+            CACHE_KEY=$(curl -s "https://api.github.com/repos/glpi-project/glpi/commits/$RESOLVED_TAG" | jq -r '.sha // empty')
+          else
+            CACHE_KEY=$(curl -s "https://api.github.com/repos/glpi-project/glpi/commits/$GLPI_VERSION" | jq -r '.sha // empty')
           fi
-          echo "marketplace_dir=$MARKETPLACE_DIR" >> $GITHUB_OUTPUT
+          echo "cache_key=$CACHE_KEY" >> $GITHUB_OUTPUT
+
+
+          # Compute artifact prefix (unique per workflow call)
+          if [[ "$IMAGE_TAG" != '' ]]; then
+            ARTIFACT_PREFIX="$IMAGE_TAG"
+          else
+            # Replace slashes and colons with dashes for branches like 11.0/bugfixes
+            ARTIFACT_PREFIX="$(echo "$GLPI_VERSION" | sed --regexp-extended 's|[/:]|-|g' | sed --regexp-extended 's|https?--||')"
+          fi
+          echo "artifact_prefix=$ARTIFACT_PREFIX" >> $GITHUB_OUTPUT
+
+          # Compute image version for metadata-action
+          if [[ "$IMAGE_TAG" != '' ]]; then
+            IMAGE_VERSION="$IMAGE_TAG"
+          else
+            IMAGE_VERSION="$(echo "$GLPI_VERSION" | sed --regexp-extended 's|[/:]|-|g' | sed --regexp-extended 's|https?--||')"
+          fi
+          echo "image_version=$IMAGE_VERSION" >> $GITHUB_OUTPUT
+
+          # Skip all version checks if:
+          # - image-tag is provided (explicit override)
+          # - glpi-version is not a semver (branch, commit, URL)
+          if [[ "$IMAGE_TAG" != '' ]] || [[ "$IS_SEMVER" != "true" ]]; then
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+            echo "is_latest_major=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Detect prerelease (contains -rc, -beta, -alpha, etc.)
+          PRERELEASE_FLAG="$( echo "$GLPI_VERSION" | grep --perl-regexp --only-matching '(\-\w+)?$' )"
+          if [[ -n "$PRERELEASE_FLAG" ]]; then
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+            echo "is_latest_major=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check if this is the latest release overall
+          LATEST_TAG=$(curl -s "https://api.github.com/repos/glpi-project/glpi/releases/latest" | jq -r '.tag_name')
+          if [[ "$GLPI_VERSION" = "$LATEST_TAG" ]]; then
+            echo "is_latest=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Fetch all releases from GitHub API (non-prerelease only) for major series check
+          RELEASES=$(curl -s "https://api.github.com/repos/glpi-project/glpi/releases?per_page=100" | \
+            jq -r '[.[] | select(.prerelease == false) | .tag_name]')
+
+          # Check if this is the latest in its major series (e.g., latest 11.x.x)
+          IMAGE_VERSION_MAJOR=$(echo "$GLPI_VERSION" | cut --delimiter=. --fields=1)
+          LATEST_IN_MAJOR=$(echo "$RELEASES" | jq -r --arg major "$IMAGE_VERSION_MAJOR" \
+            '[.[] | select(startswith($major + "."))] | .[0] // empty')
+          if [[ "$GLPI_VERSION" = "$LATEST_IN_MAJOR" ]]; then
+            echo "is_latest_major=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_latest_major=false" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    name: "Build [${{ matrix.platform.suffix }}]"
+    runs-on: "${{ matrix.platform.runner }}"
+    needs: [prepare]
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { arch: "linux/amd64", runner: "ubuntu-24.04", suffix: "amd64" }
+          - { arch: "linux/arm64", runner: "ubuntu-24.04-arm", suffix: "arm64" }
+    steps:
       - name: "Checkout"
         uses: "actions/checkout@v6"
-        with:
-          repository: glpi-project/docker-images
-      - name: "Get sources from glpi-project/glpi"
+
+      - name: "Prepare environment"
         run: |
-          curl https://github.com/glpi-project/glpi/archive/${{ inputs.glpi-version }}.tar.gz --location --output glpi.tar.gz
-          mkdir glpi/sources
-          tar --extract --ungzip --strip 1 --file glpi.tar.gz --directory glpi/sources
-          curl https://patch-diff.githubusercontent.com/raw/glpi-project/glpi/pull/22381.diff --location --output composer-audit-config.diff
-          patch --force --directory=glpi/sources < composer-audit-config.diff
+          platform="${{ matrix.platform.arch }}"
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+
+      - name: "Docker metadata"
+        id: "meta"
+        uses: "docker/metadata-action@v5"
+        with:
+          images: |
+            ${{ env.DOCKERHUB_IMAGE }}
+            ${{ env.GHCR_IMAGE }}
+
       - name: "Set up QEMU"
         uses: "docker/setup-qemu-action@v3"
+
+      - name: "Set up Docker Buildx"
+        uses: "docker/setup-buildx-action@v3"
+
+      - name: "Login to DockerHub"
+        uses: "docker/login-action@v3"
+        with:
+          username: "${{ secrets.DOCKER_HUB_USERNAME }}"
+          password: "${{ secrets.DOCKER_HUB_TOKEN }}"
+
+      - name: "Login to Github container registry"
+        uses: "docker/login-action@v3"
+        with:
+          registry: "ghcr.io"
+          username: "${{ secrets.GHCR_USERNAME }}"
+          password: "${{ secrets.GHCR_ACCESS_TOKEN }}"
+
+      - name: "Build and push by digest"
+        id: "build"
+        uses: "docker/build-push-action@v6"
+        with:
+          build-args: |
+            GLPI_VERSION=${{ needs.prepare.outputs.glpi-version }}
+            GLPI_PATCH_URL=${{ needs.prepare.outputs.patch-url }}
+            GLPI_CACHE_KEY=${{ needs.prepare.outputs.cache-key }}
+            GLPI_MARKETPLACE_DIR=${{ needs.prepare.outputs.marketplace-dir }}
+            BUILDER_IMAGE=php:${{ needs.prepare.outputs.php-version }}-cli-alpine
+            APP_IMAGE=php:${{ needs.prepare.outputs.php-version }}-apache
+          cache-from: |
+            type=gha,scope=${{ needs.prepare.outputs.cache-key }}-${{ matrix.platform.suffix }}
+            type=gha,scope=main-${{ matrix.platform.suffix }}
+          cache-to: "type=gha,mode=max,scope=${{ needs.prepare.outputs.cache-key }}-${{ matrix.platform.suffix }}"
+          context: "glpi"
+          labels: "${{ steps.meta.outputs.labels }}"
+          platforms: "${{ matrix.platform.arch }}"
+          pull: true
+          sbom: ${{ needs.prepare.outputs.push == 'true' }}
+          provenance: ${{ needs.prepare.outputs.push == 'true' && 'mode=max' || 'false' }}
+          outputs: "type=image,\"name=${{ env.DOCKERHUB_IMAGE }},${{ env.GHCR_IMAGE }}\",push-by-digest=true,name-canonical=true,push=${{ needs.prepare.outputs.push }}"
+
+      - name: "Export digest"
+        if: ${{ needs.prepare.outputs.push == 'true' }}
+        run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: "Upload digest"
+        if: ${{ needs.prepare.outputs.push == 'true' }}
+        uses: "actions/upload-artifact@v4"
+        with:
+          name: "digests-${{ needs.prepare.outputs.artifact-prefix }}-${{ env.PLATFORM_PAIR }}"
+          path: "${{ runner.temp }}/digests/*"
+          if-no-files-found: "error"
+          retention-days: 1
+
+  merge-manifests:
+    name: "Merge manifests"
+    runs-on: "ubuntu-latest"
+    needs: [prepare, build]
+    if: ${{ needs.prepare.outputs.push == 'true' }}
+    steps:
+      - name: "Download digests"
+        uses: "actions/download-artifact@v4"
+        with:
+          path: "${{ runner.temp }}/digests"
+          pattern: "digests-${{ needs.prepare.outputs.artifact-prefix }}-*"
+          merge-multiple: true
+      - name: "Verify digests"
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          if [ -z "$(ls --almost-all ${{ runner.temp }}/digests)" ]; then
+            echo "::error::No digest files found! Build job may have failed or artifacts expired."
+            exit 1
+          fi
       - name: "Set up Docker Buildx"
         uses: "docker/setup-buildx-action@v3"
       - name: "Login to DockerHub"
@@ -117,17 +339,49 @@ jobs:
           registry: "ghcr.io"
           username: "${{ secrets.GHCR_USERNAME }}"
           password: "${{ secrets.GHCR_ACCESS_TOKEN }}"
-      - name: "Build and push"
-        uses: "docker/build-push-action@v6"
+      - name: "Docker metadata"
+        id: "meta"
+        uses: "docker/metadata-action@v5"
         with:
-          build-args: |
-            BUILDER_IMAGE=php:${{inputs.php-version}}-cli-alpine
-            APP_IMAGE=php:${{inputs.php-version}}-apache
-            GLPI_MARKETPLACE_DIR=${{ steps.variables.outputs.marketplace_dir }}
-          cache-from: "type=gha"
-          cache-to: "type=gha,mode=max"
-          context: "glpi"
-          outputs: "type=registry"
-          platforms: "linux/amd64,linux/arm64"
-          pull: true
-          tags: "${{ steps.variables.outputs.tags }}"
+          images: |
+            ${{ env.DOCKERHUB_IMAGE }}
+            ${{ env.GHCR_IMAGE }}
+          # Disable automatic latest tag - we control it via is-latest
+          flavor: |
+            latest=false
+          tags: |
+            # If image-tag is explicitly provided, use it directly
+            type=raw,value=${{ needs.prepare.outputs.image-tag }},enable=${{ needs.prepare.outputs.image-tag != '' }}
+            # Base version tag (always, when no explicit image-tag)
+            type=raw,value=${{ needs.prepare.outputs.image-version }},enable=${{ needs.prepare.outputs.image-tag == '' }}
+
+            # Only for releases
+            type=semver,pattern={{major}},value=${{ needs.prepare.outputs.glpi-version }},enable=${{ needs.prepare.outputs.is-latest-major == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.glpi-version }},enable=${{ needs.prepare.outputs.is-latest-major == 'true' }}
+
+            # Latest
+            type=raw,value=latest,enable=${{ needs.prepare.outputs.is-latest == 'true' }}
+      - name: "Create and push manifest"
+        working-directory: "${{ runner.temp }}/digests"
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          # Create manifest for DockerHub
+          DOCKERHUB_TAGS=$(echo "$TAGS" | grep "^${{ env.DOCKERHUB_IMAGE }}" | xargs --replace={} echo "-t {}" | tr '\n' ' ')
+          if [[ -n "$DOCKERHUB_TAGS" ]]; then
+            echo "Creating DockerHub manifest..."
+            docker buildx imagetools create $DOCKERHUB_TAGS \
+              $(printf '${{ env.DOCKERHUB_IMAGE }}@sha256:%s ' *)
+          fi
+
+          # Create manifest for GHCR
+          GHCR_TAGS=$(echo "$TAGS" | grep "^${{ env.GHCR_IMAGE }}" | xargs --replace={} echo "-t {}" | tr '\n' ' ')
+          if [[ -n "$GHCR_TAGS" ]]; then
+            echo "Creating GHCR manifest..."
+            docker buildx imagetools create $GHCR_TAGS \
+              $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
+          fi
+      - name: "Inspect image"
+        run: |
+          # Get first tag for inspection
+          docker buildx imagetools inspect ${{ fromJSON(steps.meta.outputs.json).tags[0] }}

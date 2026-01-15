@@ -1,6 +1,51 @@
+# GLPI Docker Image
+#
+# Build Arguments:
+#   BUILDER_IMAGE          - PHP CLI image for building (default: php:cli-alpine)
+#   APP_IMAGE              - PHP Apache image for runtime (default: php:apache)
+#   GLPI_VERSION           - Version to build: "latest" (default), tag (10.0.18), branch (main), commit, or URL
+#   GLPI_CACHE_KEY         - Cache-busting key for CI workflows (internal use)
+#   GLPI_PATCH_URL         - Space-separated URLs to .diff/.patch files to apply
+#   GLPI_MARKETPLACE_DIR   - Marketplace directory path (default: /var/glpi/marketplace)
+#                            Use /var/www/glpi/marketplace for v10.x builds
 
 ARG BUILDER_IMAGE=php:cli-alpine
 ARG APP_IMAGE=php:apache
+
+#####
+# Downloader image - Resolve version and download source
+#####
+FROM alpine AS downloader
+
+# GLPI_VERSION can be:
+# - "latest" (default): resolves to latest stable release
+# - A tag version: e.g., "10.0.18", "11.0.0"
+# - A branch name: e.g., "11.0/bugfixes", "main"
+# - A commit hash: e.g., "2186bc6bd410d8bcb048637b3c0fb86b7e320c0a"
+# - A direct URL: e.g., "https://github.com/glpi-project/glpi/archive/2186bc6.tar.gz"
+ARG GLPI_VERSION=latest
+# Cache-busting key for glpi workflows
+ARG GLPI_CACHE_KEY=""
+
+RUN apk add --no-cache curl jq
+
+# Resolve version and download source
+RUN set -ex; \
+    INPUT="${GLPI_VERSION}"; \
+    # If input starts with https://, use it as-is \
+    if echo "$INPUT" | grep --quiet '^https://'; then \
+      URL="$INPUT"; \
+    else \
+      VERSION="$INPUT"; \
+      # If "latest", resolve from GitHub API \
+      if [ "$VERSION" = "latest" ]; then \
+        VERSION=$(curl --silent https://api.github.com/repos/glpi-project/glpi/releases/latest | jq --raw-output .tag_name); \
+      fi; \
+      # Use GitHub's generic archive format (works for branches, tags, and commits)
+      URL="https://github.com/glpi-project/glpi/archive/${VERSION}.tar.gz"; \
+    fi; \
+    echo "Downloading GLPI from $URL"; \
+    curl --location "$URL" --output /glpi.tar.gz
 
 #####
 # Builder image
@@ -27,8 +72,8 @@ RUN \
   # Install nodejs and npm.
   && apk add nodejs npm \
   \
-  # Install git and zip used by composer when fetching dependencies.
-  && apk add git unzip \
+  # Install git, zip, and curl used by composer.
+  && apk add git unzip curl \
   \
   # Install intl PHP extension required to execute the GLPI console.
   && apk add icu-dev \
@@ -41,8 +86,24 @@ RUN \
  # Update PHP configuration.
 RUN echo "memory_limit = 512M" >> /usr/local/etc/php/conf.d/docker-php-memory.ini
 
-# Copy GLPI source.
-COPY --chown=www-data:www-data ./sources /usr/src/glpi
+# Copy tarball from downloader and extract (preserves permissions from archive)
+COPY --from=downloader /glpi.tar.gz /tmp/glpi.tar.gz
+RUN mkdir --parents /usr/src/glpi \
+    && tar --extract --gzip --file=/tmp/glpi.tar.gz --strip-components=1 --directory=/usr/src/glpi \
+    && rm /tmp/glpi.tar.gz \
+    && chown --recursive www-data:www-data /usr/src/glpi
+
+# Optional patch URL to apply after download
+ARG GLPI_PATCH_URL=""
+# Apply optional patches if GLPI_PATCH_URL is provided (space-separated URLs)
+RUN set -ex; \
+    if [ -n "${GLPI_PATCH_URL}" ]; then \
+      cd /usr/src/glpi && \
+      for PATCH in ${GLPI_PATCH_URL}; do \
+        echo "Applying patch from ${PATCH}"; \
+        curl --location "${PATCH}" | patch --strip=1; \
+      done; \
+    fi
 
 # Build GLPI app
 USER www-data
@@ -54,18 +115,15 @@ RUN /usr/src/glpi/tools/build_glpi.sh
 #####
 FROM $APP_IMAGE
 
-ARG GLPI_MARKETPLACE_DIR=/var/glpi/marketplace
-
 LABEL \
-  org.opencontainers.image.title="GLPI nightly build" \
-  org.opencontainers.image.description="This container contains Apache/PHP and a nightly build of GLPI. \
-It can be used to test latest features and bug fixes." \
+  org.opencontainers.image.title="GLPI build" \
+  org.opencontainers.image.description="This container contains Apache/PHP and a build of GLPI." \
   org.opencontainers.image.url="https://github.com/glpi-project/docker-images" \
   org.opencontainers.image.source="git@github.com:glpi-project/docker-images"
 
 RUN apt-get update \
-  && PHP_MAJOR_VERSION="$(echo $PHP_VERSION | cut -d '.' -f 1)" \
-  && PHP_MINOR_VERSION="$(echo $PHP_VERSION | cut -d '.' -f 2)" \
+  && PHP_MAJOR_VERSION="$(echo $PHP_VERSION | cut --delimiter='.' --fields=1)" \
+  && PHP_MINOR_VERSION="$(echo $PHP_VERSION | cut --delimiter='.' --fields=2)" \
   \
   # Install APCU PHP extension.
   && pecl install apcu \
@@ -138,7 +196,7 @@ RUN apt-get update \
 
 # Use the default production configuration
 # ref: https://github.com/docker-library/docs/tree/master/php#configuration
-RUN ln -s $PHP_INI_DIR/php.ini-production $PHP_INI_DIR/php.ini
+RUN ln --symbolic $PHP_INI_DIR/php.ini-production $PHP_INI_DIR/php.ini
 
 # Allow apache process to bind to port 80 as non-root user
 RUN setcap cap_net_bind_service=+ep /usr/sbin/apache2
@@ -160,6 +218,10 @@ COPY --from=builder --chown=www-data:www-data /usr/src/glpi /var/www/glpi
 # Declare a volume for "config", "marketplace" and "files" directory
 RUN mkdir /var/glpi && chown www-data:www-data /var/glpi
 VOLUME /var/glpi
+
+# Marketplace directory configuration
+# v10.x uses /var/www/glpi/marketplace (legacy), v11+ uses /var/glpi/marketplace
+ARG GLPI_MARKETPLACE_DIR=/var/glpi/marketplace
 
 # Define GLPI environment variables
 ENV \

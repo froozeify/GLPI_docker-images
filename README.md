@@ -1,5 +1,7 @@
 # GLPI Docker Images
 
+[![Release Build](https://github.com/glpi-project/docker-images/actions/workflows/glpi.yml/badge.svg)](https://github.com/glpi-project/docker-images/actions/workflows/glpi.yml)
+
 ![GLPI on docker illustration](https://raw.githubusercontent.com/glpi-project/docker-images/refs/heads/main/docs/illustration.png)
 
 [GLPI](https://glpi-project.org) is a free and open source Asset and IT Management Software package, Data center management, ITIL Service Desk, licenses tracking and software auditing.
@@ -8,6 +10,7 @@ A few links:
 
 - [Report an issue](https://github.com/glpi-project/glpi/issues/new?template=bug_report.yml)
 - [Documentation](https://glpi-project.org/documentation/)
+- [Contributing](CONTRIBUTING.md)
 
 
 This repository contains build files for docker images available in [Github Container Registry](https://github.com/orgs/glpi-project/packages?ecosystem=container) and [Docker hub](https://hub.docker.com/r/glpi/glpi).
@@ -26,8 +29,7 @@ services:
       - "./storage/glpi:/var/glpi:rw"
     env_file: .env # Pass environment variables from .env file to the container
     depends_on:
-      db:
-        condition: service_healthy
+      - db
     ports:
       - "80:80"
 
@@ -41,12 +43,6 @@ services:
       MYSQL_DATABASE: ${GLPI_DB_NAME}
       MYSQL_USER: ${GLPI_DB_USER}
       MYSQL_PASSWORD: ${GLPI_DB_PASSWORD}
-    healthcheck:
-      test: mysqladmin ping -h 127.0.0.1 -u $$MYSQL_USER --password=$$MYSQL_PASSWORD
-      start_period: 5s
-      interval: 5s
-      timeout: 5s
-      retries: 10
     expose:
       - "3306"
 ```
@@ -104,7 +100,11 @@ docker exec -it <glpi_container_id> /var/www/glpi/bin/console database:enable_ti
 ### Volumes
 
 By default, the `glpi/glpi` image provides a volume containing its `config`, `marketplace` and `files` directories.
-For GLPI 10.0.x version the marketplace directory is not declared in the volume as the path differs. You may want to create a manual volume for the path `/var/www/glpi/marketplace` if you plan to use it.
+
+For GLPI 10.0.x version the marketplace directory is not declared in the volume as the path differs. You may want to create a manual volume for the path `/var/www/glpi/marketplace` if you plan to use it.  
+If you are building your own GLPI 10.0.x image using the `glpi/Dockerfile` file, you have to specify the marketplace path using the `--build-arg GLPI_MARKETPLACE_DIR=/var/www/glpi/marketplace` option.
+
+You can also mount a volume containing your own custom plugins in `/var/www/glpi/plugins`.
 
 ### Custom PHP configuration
 The following example sets the memory limit to 256M
