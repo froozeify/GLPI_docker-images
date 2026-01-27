@@ -63,5 +63,5 @@ jobs:
           no-cache: true
           context: "githubactions-glpi-apache"
           outputs: "${{ env.OUTPUTS }}"
-          pull: true
+          push: true
           tags: "${{ steps.tags.outputs.tags }}"
