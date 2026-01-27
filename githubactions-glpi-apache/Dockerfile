@@ -12,7 +12,7 @@ ARG GLPI_BRANCH
 
 RUN \
   # Get target GLPI branch source code.
-  git clone --depth=1 --branch=$GLPI_BRANCH https://github.com/glpi-project/glpi /tmp/glpi \
+  git clone --depth=1 --branch=$GLPI_BRANCH https://github.com/froozeify/glpi /tmp/glpi \
   && git --git-dir="/tmp/glpi/.git" checkout-index --all --force --prefix="/var/www/glpi/" \
   \
   # Build GLPI.

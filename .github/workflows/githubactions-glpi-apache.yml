@@ -23,24 +23,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "7.4"}
-          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.0"}
-          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.1"}
-          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.2"}
-          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.3"}
-          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.4"}
-          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.5"}
-          - {glpi-branch: "11.0/bugfixes", glpi-version: "11.0.x", php-version: "8.2"}
-          - {glpi-branch: "11.0/bugfixes", glpi-version: "11.0.x", php-version: "8.3"}
-          - {glpi-branch: "11.0/bugfixes", glpi-version: "11.0.x", php-version: "8.4"}
-          - {glpi-branch: "11.0/bugfixes", glpi-version: "11.0.x", php-version: "8.5", latest: true}
+#          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "7.4"}
+#          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.0"}
+#          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.1"}
+#          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.2"}
+#          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.3"}
+#          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.4"}
+#          - {glpi-branch: "10.0/bugfixes", glpi-version: "10.0.x", php-version: "8.5"}
+#          - {glpi-branch: "11.0/bugfixes", glpi-version: "11.0.x", php-version: "8.2"}
+#          - {glpi-branch: "11.0/bugfixes", glpi-version: "11.0.x", php-version: "8.3"}
+#          - {glpi-branch: "11.0/bugfixes", glpi-version: "11.0.x", php-version: "8.4"}
+          - {glpi-branch: "11.0/migrate-glpi-project-tools", glpi-version: "11.0.x", php-version: "8.5", latest: true}
     steps:
       - name: "Set variables"
         run: |
           OUTPUTS="type=image"
-          if [[ "${{ github.ref }}" = 'refs/heads/main' && "${{ github.repository }}" = 'glpi-project/docker-images' ]]; then
+#          if [[ "${{ github.ref }}" = 'refs/heads/main' && "${{ github.repository }}" = 'froozeify/docker-images' ]]; then
               OUTPUTS="$OUTPUTS,push=true"
-          fi
+#          fi
           echo "OUTPUTS=$OUTPUTS" >> $GITHUB_ENV
       - name: "Checkout"
         uses: "actions/checkout@v6"
@@ -60,16 +60,16 @@ jobs:
       - name: "Generate tags"
         id: tags
         run: |
-          TAGS="ghcr.io/glpi-project/githubactions-glpi-apache:php-${{ matrix.php-version }}-glpi-${{ matrix.glpi-version }}"
+          TAGS="ghcr.io/froozeify/githubactions-glpi-apache:php-${{ matrix.php-version }}-glpi-${{ matrix.glpi-version }}"
           if [[ "${{ matrix.latest }}" == "true" ]]; then
-            TAGS="${TAGS},ghcr.io/glpi-project/githubactions-glpi-apache:latest"
+            TAGS="${TAGS},ghcr.io/froozeify/githubactions-glpi-apache:latest"
           fi
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
       - name: "Build and push"
         uses: "docker/build-push-action@v6"
         with:
           build-args: |
-            BASE_IMAGE=ghcr.io/glpi-project/githubactions-php-apache:${{ matrix.php-version }}
+            BASE_IMAGE=ghcr.io/froozeify/githubactions-php-apache:${{ matrix.php-version }}
             GLPI_BRANCH=${{ matrix.glpi-branch }}
           no-cache: true
           context: "githubactions-glpi-apache"
