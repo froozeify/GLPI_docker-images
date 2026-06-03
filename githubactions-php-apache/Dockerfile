@@ -83,7 +83,7 @@ RUN \
   && echo "apc.enable=1" >> /usr/local/etc/php/conf.d/docker-php-ext-apcu.ini \
   && echo "apc.enable_cli=1" >> /usr/local/etc/php/conf.d/docker-php-ext-apcu.ini \
   \
-  # Install PCOV PHP extension (disabled by default, enabled via PCOV_ENABLED env var).
+  # Install PCOV PHP extension (disabled by default, enable at runtime via `php -d pcov.enabled=1`).
   && pecl install pcov \
   && docker-php-ext-enable pcov \
   && echo "pcov.enabled=0" >> /usr/local/etc/php/conf.d/docker-php-ext-pcov.ini \
