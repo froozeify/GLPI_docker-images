@@ -7,10 +7,14 @@ on:
     paths:
       - ".github/workflows/githubactions-php.yml"
       - "githubactions-php/**"
+      - "githubactions-base/**"
+      - "docker-bake.hcl"
   pull_request:
     paths:
       - ".github/workflows/githubactions-php.yml"
       - "githubactions-php/**"
+      - "githubactions-base/**"
+      - "docker-bake.hcl"
   schedule:
     - cron:  '0 0 * * 1'
   # Enable manual run
@@ -23,11 +27,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {base-image: "php:8.2-fpm-trixie", php-version: "8.2"}
-          - {base-image: "php:8.3-fpm-trixie", php-version: "8.3"}
-          - {base-image: "php:8.4-fpm-trixie", php-version: "8.4"}
-          - {base-image: "php:8.5-fpm-trixie", php-version: "8.5"}
-          - {base-image: "php:8.6-rc-fpm-trixie", php-version: "8.6"}
+          - {php-version: "8.2", slug: "8-2"}
+          - {php-version: "8.3", slug: "8-3"}
+          - {php-version: "8.4", slug: "8-4"}
+          - {php-version: "8.5", slug: "8-5"}
+          - {php-version: "8.6", slug: "8-6"}
     steps:
       - name: "Set variables"
         run: |
@@ -52,13 +56,11 @@ jobs:
           username: "${{ secrets.GHCR_USERNAME }}"
           password: "${{ secrets.GHCR_ACCESS_TOKEN }}"
       - name: "Build and push"
-        uses: "docker/build-push-action@v7"
+        uses: "docker/bake-action@v7"
         with:
-          build-args: |
-            BASE_IMAGE=${{ matrix.base-image }}
-          cache-from: "type=gha"
-          cache-to: "type=gha,mode=max"
-          context: "githubactions-php"
-          outputs: "${{ env.OUTPUTS }}"
-          pull: true
-          tags: "ghcr.io/glpi-project/githubactions-php:${{ matrix.php-version }}"
+          targets: "githubactions-php-${{ matrix.slug }}"
+          set: |
+            *.pull=true
+            *.cache-from=type=gha
+            *.cache-to=type=gha,mode=max
+            githubactions-php-${{ matrix.slug }}.output=${{ env.OUTPUTS }}

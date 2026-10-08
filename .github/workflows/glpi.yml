@@ -71,10 +71,12 @@ on:
     paths:
       - ".github/workflows/glpi.yml"
       - "glpi/**"
+      - "githubactions-base/scripts/**"
   pull_request:
     paths:
       - ".github/workflows/glpi.yml"
       - "glpi/**"
+      - "githubactions-base/scripts/**"
 
   # Manual builds
   # Can be triggered by curl:
@@ -297,6 +299,8 @@ jobs:
           cache-from: ${{ (!inputs.no-cache && format('type=gha,scope={0}-{1}\ntype=gha,scope=main-{1}', needs.prepare.outputs.cache-key, matrix.platform.suffix)) || '' }}
           cache-to: ${{ (!inputs.no-cache && format('type=gha,mode=max,scope={0}-{1}', needs.prepare.outputs.cache-key, matrix.platform.suffix)) || '' }}
           context: "glpi"
+          build-contexts: |
+            php-scripts=githubactions-base/scripts
           labels: "${{ steps.meta.outputs.labels }}"
           platforms: "${{ matrix.platform.arch }}"
           pull: true
