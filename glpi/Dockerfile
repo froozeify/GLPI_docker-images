@@ -42,7 +42,8 @@ RUN set -ex; \
       VERSION="$INPUT"; \
       # If "latest", resolve from GitHub API \
       if [ "$VERSION" = "latest" ]; then \
-        VERSION=$(curl --silent "https://api.github.com/repos/${REPO}/releases/latest" | jq --raw-output .tag_name); \
+        VERSION=$(curl --fail --silent --show-error "https://api.github.com/repos/${REPO}/releases/latest" | jq --raw-output '.tag_name // empty'); \
+        if [ -z "$VERSION" ]; then echo "Unable to resolve the latest release of ${REPO}" >&2; exit 1; fi; \
       fi; \
       # Use GitHub's generic archive format (works for branches, tags, and commits)
       URL="https://github.com/${REPO}/archive/${VERSION}.tar.gz"; \

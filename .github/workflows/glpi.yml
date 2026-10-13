@@ -72,11 +72,13 @@ on:
       - ".github/workflows/glpi.yml"
       - "glpi/**"
       - "githubactions-base/scripts/**"
+      - "docker-bake.hcl"
   pull_request:
     paths:
       - ".github/workflows/glpi.yml"
       - "glpi/**"
       - "githubactions-base/scripts/**"
+      - "docker-bake.hcl"
 
   # Manual builds
   # Can be triggered by curl:
@@ -259,6 +261,7 @@ jobs:
           images: |
             ${{ env.DOCKERHUB_IMAGE }}
             ${{ env.GHCR_IMAGE }}
+          bake-target: "docker-metadata-action"
 
       - name: "Set up QEMU"
         uses: "docker/setup-qemu-action@v4"
@@ -283,36 +286,36 @@ jobs:
 
       - name: "Build and push by digest"
         id: "build"
-        uses: "docker/build-push-action@v7"
+        uses: "docker/bake-action@v7"
         env:
           DOCKER_BUILD_SUMMARY: ${{ runner.debug == '1' }}
+          # Inputs of the `glpi` target of `docker-bake.hcl`
+          GLPI_REPO: ${{ needs.prepare.outputs.glpi-repo }}
+          GLPI_VERSION: ${{ needs.prepare.outputs.glpi-version }}
+          GLPI_PATCH_URL: ${{ needs.prepare.outputs.patch-url }}
+          GLPI_CACHE_KEY: ${{ needs.prepare.outputs.cache-key }}
+          GLPI_MARKETPLACE_DIR: ${{ needs.prepare.outputs.marketplace-dir }}
+          GLPI_PHP_VERSION: ${{ needs.prepare.outputs.php-version }}
         with:
-          build-args: |
-            GLPI_REPO=${{ needs.prepare.outputs.glpi-repo }}
-            GLPI_VERSION=${{ needs.prepare.outputs.glpi-version }}
-            GLPI_PATCH_URL=${{ needs.prepare.outputs.patch-url }}
-            GLPI_CACHE_KEY=${{ needs.prepare.outputs.cache-key }}
-            GLPI_MARKETPLACE_DIR=${{ needs.prepare.outputs.marketplace-dir }}
-            BUILDER_IMAGE=php:${{ needs.prepare.outputs.php-version }}-cli-alpine
-            APP_IMAGE=php:${{ needs.prepare.outputs.php-version }}-apache
-          no-cache: ${{ inputs.no-cache || false }}
-          cache-from: ${{ (!inputs.no-cache && format('type=gha,scope={0}-{1}\ntype=gha,scope=main-{1}', needs.prepare.outputs.cache-key, matrix.platform.suffix)) || '' }}
-          cache-to: ${{ (!inputs.no-cache && format('type=gha,mode=max,scope={0}-{1}', needs.prepare.outputs.cache-key, matrix.platform.suffix)) || '' }}
-          context: "glpi"
-          build-contexts: |
-            php-scripts=githubactions-base/scripts
-          labels: "${{ steps.meta.outputs.labels }}"
-          platforms: "${{ matrix.platform.arch }}"
-          pull: true
-          sbom: ${{ needs.prepare.outputs.push == 'true' }}
-          provenance: ${{ needs.prepare.outputs.push == 'true' && 'mode=max' || 'false' }}
-          outputs: "type=image,\"name=${{ env.DOCKERHUB_IMAGE }},${{ env.GHCR_IMAGE }}\",push-by-digest=true,name-canonical=true,push=${{ needs.prepare.outputs.push }}"
+          files: |
+            ./docker-bake.hcl
+            cwd://${{ steps.meta.outputs.bake-file-labels }}
+          targets: "glpi"
+          set: |
+            glpi.platform=${{ matrix.platform.arch }}
+            ${{ inputs.no-cache && 'glpi.no-cache=true' || '' }}
+            ${{ !inputs.no-cache && format('glpi.cache-from=type=gha,scope={0}-{1}', needs.prepare.outputs.cache-key, matrix.platform.suffix) || '' }}
+            ${{ !inputs.no-cache && format('glpi.cache-from=type=gha,scope=main-{0}', matrix.platform.suffix) || '' }}
+            ${{ !inputs.no-cache && format('glpi.cache-to=type=gha,mode=max,scope={0}-{1}', needs.prepare.outputs.cache-key, matrix.platform.suffix) || '' }}
+            ${{ needs.prepare.outputs.push == 'true' && 'glpi.attest=type=sbom' || '' }}
+            ${{ needs.prepare.outputs.push == 'true' && 'glpi.attest=type=provenance,mode=max' || 'glpi.attest=type=provenance,disabled=true' }}
+            glpi.output=type=image,"name=${{ env.DOCKERHUB_IMAGE }},${{ env.GHCR_IMAGE }}",push-by-digest=true,name-canonical=true,push=${{ needs.prepare.outputs.push }}
 
       - name: "Export digest"
         if: ${{ needs.prepare.outputs.push == 'true' }}
         run: |
           mkdir -p ${{ runner.temp }}/digests
-          digest="${{ steps.build.outputs.digest }}"
+          digest="${{ fromJSON(steps.build.outputs.metadata)['glpi']['containerimage.digest'] }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}-${{ matrix.platform.suffix }}"
 
       - name: "Upload digest"

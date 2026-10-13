@@ -1,4 +1,6 @@
 ARG BASE_IMAGE=php:apache-trixie
+# Flavor of the PHP image: "apache" or "fpm".
+ARG FLAVOR=apache
 
 
 #####
@@ -11,6 +13,8 @@ FROM composer:latest AS composer
 # It is not published, it is consumed by the other images through `docker-bake.hcl`.
 #####
 FROM $BASE_IMAGE
+
+ARG FLAVOR
 
 COPY ./scripts/install-php-extensions.sh /usr/local/bin/install-php-extensions
 
@@ -28,7 +32,7 @@ RUN --mount=type=bind,from=ghcr.io/php/pie:bin,source=/pie,target=/usr/local/bin
   && echo "memory_limit = 512M" >> /usr/local/etc/php/conf.d/docker-php-memory.ini \
   \
   # Enable apache mods (only for apache based images).
-  && if command -v a2enmod > /dev/null; then a2enmod rewrite; fi \
+  && if [ "$FLAVOR" = "apache" ]; then a2enmod rewrite; fi \
   \
   # Install nodejs and npm.
   && apt-get install --assume-yes --no-install-recommends --quiet gnupg \

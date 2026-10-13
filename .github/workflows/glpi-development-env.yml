@@ -2,6 +2,8 @@ name: "GLPI development environment image"
 
 env:
   GHCR_IMAGE: "ghcr.io/glpi-project/glpi-development-env"
+  # PHP version that also gets the `latest` tag
+  LATEST_PHP_VERSION: "8.5"
 
 on:
   push:
@@ -9,12 +11,14 @@ on:
       - "main"
     paths:
       - ".github/workflows/glpi-development-env.yml"
+      - ".github/actions/bake-php-matrix/**"
       - "glpi-development-env/**"
       - "githubactions-base/**"
       - "docker-bake.hcl"
   pull_request:
     paths:
       - ".github/workflows/glpi-development-env.yml"
+      - ".github/actions/bake-php-matrix/**"
       - "glpi-development-env/**"
       - "githubactions-base/**"
       - "docker-bake.hcl"
@@ -23,21 +27,41 @@ on:
   # Enable manual run
   workflow_dispatch:
 
+# Cancel the previous run of a pull request when it is updated (other events have a unique group and are never cancelled)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
+  prepare:
+    name: "Prepare"
+    runs-on: "ubuntu-latest"
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v7"
+      - name: "List PHP versions"
+        id: "matrix"
+        uses: "./.github/actions/bake-php-matrix"
+        with:
+          target: "glpi-development-env"
+
   build:
     name: "Build PHP ${{ matrix.php.php-version }} [${{ matrix.platform.suffix }}]"
     runs-on: "${{ matrix.platform.runner }}"
+    needs: [prepare]
     env:
       PUSH: ${{ github.ref == 'refs/heads/main' && github.repository == 'glpi-project/docker-images' }}
+      # Secrets are not available on pull requests coming from forks (and Dependabot)
+      DOCKER_HUB_LOGIN: ${{ secrets.DOCKER_HUB_TOKEN != '' }}
+      # Caches are isolated by architecture, but the base images are shared with the other workflows
+      GHA_CACHE: "true"
+      CACHE_SUFFIX: "-${{ matrix.platform.suffix }}"
     strategy:
       fail-fast: false
       matrix:
-        php: &php-versions
-          - {php-version: "8.2", bake-target: "glpi-development-env-8-2", latest: "false"}
-          - {php-version: "8.3", bake-target: "glpi-development-env-8-3", latest: "false"}
-          - {php-version: "8.4", bake-target: "glpi-development-env-8-4", latest: "false"}
-          - {php-version: "8.5", bake-target: "glpi-development-env-8-5", latest: "true"}
-          - {php-version: "8.6", bake-target: "glpi-development-env-8-6", latest: "false"}
+        php: ${{ fromJSON(needs.prepare.outputs.matrix) }}
         platform:
           - { arch: "linux/amd64", runner: "ubuntu-26.04", suffix: "amd64" }
           - { arch: "linux/arm64", runner: "ubuntu-26.04-arm", suffix: "arm64" }
@@ -60,7 +84,7 @@ jobs:
         uses: "docker/setup-buildx-action@v4"
 
       - name: "Login to DockerHub"
-        if: ${{ env.PUSH == 'true' }}
+        if: ${{ env.DOCKER_HUB_LOGIN == 'true' }}
         uses: "docker/login-action@v4"
         with:
           username: "${{ secrets.DOCKER_HUB_USERNAME }}"
@@ -83,21 +107,18 @@ jobs:
           files: |
             ./docker-bake.hcl
             cwd://${{ steps.meta.outputs.bake-file-labels }}
-          targets: "${{ matrix.php.bake-target }}"
+          targets: "${{ matrix.php.target }}"
           set: |
             *.platform=${{ matrix.platform.arch }}
-            *.pull=true
-            *.cache-from=type=gha,scope=glpi-development-env-${{ matrix.php.php-version }}-${{ matrix.platform.suffix }}
-            *.cache-to=type=gha,mode=max,scope=glpi-development-env-${{ matrix.php.php-version }}-${{ matrix.platform.suffix }}
-            ${{ env.PUSH == 'true' && format('{0}.attest=type=sbom', matrix.php.bake-target) || '' }}
-            ${{ env.PUSH == 'true' && format('{0}.attest=type=provenance,mode=max', matrix.php.bake-target) || '' }}
-            ${{ matrix.php.bake-target }}.output=type=image,name=${{ env.GHCR_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ env.PUSH }}
+            ${{ env.PUSH == 'true' && format('{0}.attest=type=sbom', matrix.php.target) || '' }}
+            ${{ env.PUSH == 'true' && format('{0}.attest=type=provenance,mode=max', matrix.php.target) || '' }}
+            ${{ matrix.php.target }}.output=type=image,name=${{ env.GHCR_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ env.PUSH }}
 
       - name: "Export digest"
         if: ${{ env.PUSH == 'true' }}
         run: |
           mkdir -p ${{ runner.temp }}/digests
-          digest="${{ fromJSON(steps.build.outputs.metadata)[matrix.php.bake-target]['containerimage.digest'] }}"
+          digest="${{ fromJSON(steps.build.outputs.metadata)[matrix.php.target]['containerimage.digest'] }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}-${{ matrix.platform.suffix }}"
 
       - name: "Upload digest"
@@ -112,12 +133,12 @@ jobs:
   merge-manifests:
     name: "Merge manifests [PHP ${{ matrix.php.php-version }}]"
     runs-on: "ubuntu-latest"
-    needs: [build]
+    needs: [prepare, build]
     if: ${{ github.ref == 'refs/heads/main' && github.repository == 'glpi-project/docker-images' }}
     strategy:
       fail-fast: false
       matrix:
-        php: *php-versions
+        php: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - name: "Download digests"
         uses: "actions/download-artifact@v8"
@@ -150,7 +171,7 @@ jobs:
             latest=false
           tags: |
             type=raw,value=${{ matrix.php.php-version }}
-            type=raw,value=latest,enable=${{ matrix.php.latest == 'true' }}
+            type=raw,value=latest,enable=${{ matrix.php.php-version == env.LATEST_PHP_VERSION }}
       - name: "Create and push manifest"
         working-directory: "${{ runner.temp }}/digests"
         env:

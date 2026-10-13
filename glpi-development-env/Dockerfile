@@ -9,8 +9,11 @@ LABEL \
 
 RUN --mount=type=bind,from=ghcr.io/php/pie:bin,source=/pie,target=/usr/local/bin/pie \
   \
+  # Update APT sources list (cleaned in the base image).
+  apt-get update \
+  \
   # Install bz2 (for marketplace), opcache and xdebug PHP extensions.
-  install-php-extensions bz2 opcache xdebug \
+  && install-php-extensions bz2 opcache xdebug \
   \
   # Install Cypress dependencies
   && apt-get install --assume-yes --no-install-recommends --quiet libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libnss3 libxss1 libasound2 libxtst6 xauth xvfb \

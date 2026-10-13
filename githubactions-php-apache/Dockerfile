@@ -9,8 +9,11 @@ LABEL \
 
 RUN --mount=type=bind,from=ghcr.io/php/pie:bin,source=/pie,target=/usr/local/bin/pie \
   \
+  # Update APT sources list (cleaned in the base image).
+  apt-get update \
+  \
   # Install PCOV PHP extension.
-  install-php-extensions pcov \
+  && install-php-extensions pcov \
   \
   # Disable sodium PHP extension (Test should validate that polyfill works).
   && rm /usr/local/etc/php/conf.d/docker-php-ext-sodium.ini \
