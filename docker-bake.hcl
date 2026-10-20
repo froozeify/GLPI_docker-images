@@ -10,7 +10,7 @@
 #   docker buildx bake glpi --set glpi.tags=glpi:local --load   # GLPI image (see GLPI_* variables)
 #   docker buildx bake --print                        # show the resolved configuration
 
-variable "REGISTRY" {
+variable "GHCR_NAMESPACE" {
   default = "ghcr.io/glpi-project"
 }
 
@@ -91,7 +91,7 @@ target "githubactions-php" {
   contexts   = {
     base = "target:githubactions-base-fpm-${slug(php)}"
   }
-  tags       = ["${REGISTRY}/githubactions-php:${php}"]
+  tags       = ["${GHCR_NAMESPACE}/githubactions-php:${php}"]
   cache-from = gha_cache_from("githubactions-php-${slug(php)}")
   cache-to   = gha_cache_to("githubactions-php-${slug(php)}")
 }
@@ -106,7 +106,7 @@ target "githubactions-php-apache" {
     base = "target:githubactions-base-apache-${slug(php)}"
   }
   target     = "main"
-  tags       = ["${REGISTRY}/githubactions-php-apache:${php}"]
+  tags       = ["${GHCR_NAMESPACE}/githubactions-php-apache:${php}"]
   cache-from = gha_cache_from("githubactions-php-apache-${slug(php)}")
   cache-to   = gha_cache_to("githubactions-php-apache-${slug(php)}")
 }
@@ -121,7 +121,7 @@ target "githubactions-php-apache-playwright" {
     base = "target:githubactions-base-apache-${slug(php)}"
   }
   target     = "playwright"
-  tags       = ["${REGISTRY}/githubactions-php-apache:${php}-playwright"]
+  tags       = ["${GHCR_NAMESPACE}/githubactions-php-apache:${php}-playwright"]
   cache-from = gha_cache_from("githubactions-php-apache-playwright-${slug(php)}")
   cache-to   = gha_cache_to("githubactions-php-apache-playwright-${slug(php)}")
 }
@@ -136,7 +136,7 @@ target "glpi-development-env" {
   contexts   = {
     base = "target:githubactions-base-apache-${slug(php)}"
   }
-  tags       = ["${REGISTRY}/glpi-development-env:${php}"]
+  tags       = ["${GHCR_NAMESPACE}/glpi-development-env:${php}"]
   cache-from = gha_cache_from("glpi-development-env-${slug(php)}")
   cache-to   = gha_cache_to("glpi-development-env-${slug(php)}")
 }
