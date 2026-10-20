@@ -93,13 +93,31 @@ docker compose --file docker-compose.dev.yml down --volumes
 
 ## Publishing from a fork
 
-On a fork, the PHP images workflows (`githubactions-php`, `glpi-development-env`) build the images but never push them.
-To publish them on your own registry, define these repository variables (and the `GHCR_USERNAME` / `GHCR_ACCESS_TOKEN`
-secrets) in your fork:
+On a fork, the images are built by the workflows but never pushed. To publish them on your own registries, define the
+secrets and variables below in your fork (`Settings > Secrets and variables > Actions`).
 
-| Variable | Description | Default |
-|:---------|:------------|:--------|
-| `PUSH_IMAGES` | Set to `true` to push the images built from the `main` branch | _(not set, no push)_ |
-| `REGISTRY` | Registry and namespace of the images (e.g. `ghcr.io/my-user`) | `ghcr.io/glpi-project` |
+### Secrets
 
-The same variables can be used locally, e.g. `REGISTRY=ghcr.io/my-user docker buildx bake githubactions-php-8-5`.
+| Secret | Used by | Description |
+|:-------|:--------|:------------|
+| `GHCR_USERNAME` | all workflows | GitHub user name used to log in to `ghcr.io`. Required to push. |
+| `GHCR_ACCESS_TOKEN` | all workflows | Token with the `write:packages` scope used to log in to `ghcr.io`. Required to push. |
+| `DOCKER_HUB_USERNAME` | all workflows | Docker Hub user name. Optional for the CI images (it only avoids pull rate limits, the login is skipped when the token is empty), required to push the `glpi` image. |
+| `DOCKER_HUB_TOKEN` | all workflows | Docker Hub access token, see above. |
+
+### Variables
+
+| Variable | Used by | Description | Default |
+|:---------|:--------|:------------|:--------|
+| `PUSH_IMAGES` | `githubactions-php`, `glpi-development-env` | Set to `true` to push the images built from the `main` branch of your fork. The upstream repository always pushes. | _not set (no push)_ |
+| `REGISTRY` | `githubactions-php`, `glpi-development-env` | Registry and namespace of the images, e.g. `ghcr.io/my-user`. | `ghcr.io/glpi-project` |
+| `GHCR_IMAGE` | `glpi` | GHCR name of the GLPI image. | `ghcr.io/glpi-project/glpi` |
+| `DOCKERHUB_IMAGE` | `glpi` | Docker Hub name of the GLPI image. | `glpi/glpi` |
+| `DOCKER_IMAGES_REPO` | `glpi` | Repository containing the Docker files to build (`owner/repo`), useful when the workflow is called from another repository. | `glpi-project/docker-images` |
+| `GLPI_REPO` | `glpi` | Repository GLPI is downloaded from (`owner/repo`). It takes precedence over the `glpi-repo` input. | `glpi-project/glpi` |
+
+The `glpi` workflow does not use `PUSH_IMAGES`: it only pushes when it is run with its `push` input set to `true`.
+The other images (`githubactions-db`, `githubactions-redis`, ...) are not built with Bake yet and always target
+`ghcr.io/glpi-project`, so they can only be pushed by the upstream repository.
+
+The Bake variables can also be used locally, e.g. `REGISTRY=ghcr.io/my-user docker buildx bake githubactions-php-8-5`.
