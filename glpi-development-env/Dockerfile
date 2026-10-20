@@ -12,9 +12,6 @@ RUN --mount=type=bind,from=ghcr.io/php/pie:bin,source=/pie,target=/usr/local/bin
   # Install bz2 (for marketplace), opcache and xdebug PHP extensions (also updates the APT sources list, cleaned in the base image).
   install-php-extensions bz2 opcache xdebug \
   \
-  # Install Cypress dependencies
-  && apt-get install --assume-yes --no-install-recommends --quiet libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libnss3 libxss1 libasound2 libxtst6 xauth xvfb \
-  \
   # Install dependencies for plugin release tool
   && apt-get install --assume-yes --no-install-recommends --quiet gpg python3 python3-git python3-gitdb python3-github python3-lxml python3-termcolor \
   && ln -s /usr/bin/python3 /usr/bin/python \
