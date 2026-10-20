@@ -7,6 +7,7 @@
 # Usage:
 #   docker buildx bake githubactions-php-apache-8-5   # one image
 #   docker buildx bake githubactions-php-apache       # same image for all PHP versions
+#   docker buildx bake glpi --set glpi.tags=glpi:local --load   # GLPI image (see GLPI_* variables)
 #   docker buildx bake --print                        # show the resolved configuration
 
 #####
@@ -138,6 +139,57 @@ target "glpi-development-env" {
   tags       = ["${GHCR_NAMESPACE}/glpi-development-env:${php}"]
   cache-from = gha_cache_from("glpi-development-env-${slug(php)}")
   cache-to   = gha_cache_to("glpi-development-env-${slug(php)}")
+}
+
+#####
+# GLPI image (published by digest, the tags are applied afterwards by the `glpi` workflow)
+#####
+
+# GitHub repository to download GLPI from.
+variable "GLPI_REPO" {
+  default = "glpi-project/glpi"
+}
+
+# "latest", a tag (10.0.18), a branch (main, 11.0/bugfixes), a commit hash or a URL.
+variable "GLPI_VERSION" {
+  default = "latest"
+}
+
+# Space-separated URLs to .diff/.patch files to apply on the sources.
+variable "GLPI_PATCH_URL" {
+  default = ""
+}
+
+# Cache-busting key, to rebuild the sources layer when the targeted commit changed.
+variable "GLPI_CACHE_KEY" {
+  default = ""
+}
+
+# `/var/www/glpi/marketplace` must be used for GLPI 10.x.
+variable "GLPI_MARKETPLACE_DIR" {
+  default = "/var/glpi/marketplace"
+}
+
+variable "GLPI_PHP_VERSION" {
+  default = LATEST_PHP_VERSION
+}
+
+target "glpi" {
+  inherits   = ["docker-metadata-action"]
+  context    = "glpi"
+  contexts   = {
+    php-scripts = "githubactions-base/scripts"
+  }
+  args       = {
+    GLPI_REPO            = GLPI_REPO
+    GLPI_VERSION         = GLPI_VERSION
+    GLPI_PATCH_URL       = GLPI_PATCH_URL
+    GLPI_CACHE_KEY       = GLPI_CACHE_KEY
+    GLPI_MARKETPLACE_DIR = GLPI_MARKETPLACE_DIR
+    BUILDER_IMAGE        = "php:${GLPI_PHP_VERSION}-cli-alpine"
+    APP_IMAGE            = "php:${GLPI_PHP_VERSION}-apache"
+  }
+  pull       = true
 }
 
 group "default" {
