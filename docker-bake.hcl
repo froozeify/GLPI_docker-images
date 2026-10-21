@@ -192,6 +192,32 @@ target "glpi" {
   pull       = true
 }
 
+#####
+# Database images
+#####
+target "githubactions-db" {
+  name       = "githubactions-${db.engine}-${slug(db.version)}"
+  matrix     = {
+    db = [
+      { engine = "mariadb", version = "10.11" },
+      { engine = "mariadb", version = "11.4" },
+      { engine = "mariadb", version = "11.8" },
+      { engine = "mariadb", version = "12.3" },
+      { engine = "mysql", version = "8.4" },
+      { engine = "mysql", version = "9.7" },
+    ]
+  }
+  context    = "githubactions-db"
+  args       = {
+    BASE_IMAGE = "${db.engine}:${db.version}"
+    CONFIG_DIR = "/etc/mysql/conf.d"
+  }
+  tags       = ["${GHCR_NAMESPACE}/githubactions-${db.engine}:${db.version}"]
+  pull       = true
+  cache-from = gha_cache_from("githubactions-${db.engine}-${slug(db.version)}")
+  cache-to   = gha_cache_to("githubactions-${db.engine}-${slug(db.version)}")
+}
+
 group "default" {
   targets = [
     "githubactions-php",
