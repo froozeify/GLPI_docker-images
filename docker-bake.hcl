@@ -218,6 +218,53 @@ target "githubactions-db" {
   cache-to   = gha_cache_to("githubactions-${db.engine}-${slug(db.version)}")
 }
 
+#####
+# Service images
+#####
+target "githubactions-service" {
+  name       = "githubactions-${service.name}"
+  matrix     = {
+    service = [
+      { name = "redis", base = "redis" },
+      { name = "memcached", base = "memcached" },
+      { name = "openldap", base = "alpine" },
+    ]
+  }
+  context    = "githubactions-${service.name}"
+  args       = {
+    BASE_IMAGE = service.base
+  }
+  tags       = ["${GHCR_NAMESPACE}/githubactions-${service.name}:latest"]
+  pull       = true
+  cache-from = gha_cache_from("githubactions-${service.name}")
+  cache-to   = gha_cache_to("githubactions-${service.name}")
+}
+
+# Images that do not take a base image argument.
+target "githubactions-dovecot" {
+  context    = "githubactions-dovecot"
+  tags       = ["${GHCR_NAMESPACE}/githubactions-dovecot:latest"]
+  pull       = true
+  cache-from = gha_cache_from("githubactions-dovecot")
+  cache-to   = gha_cache_to("githubactions-dovecot")
+}
+
+target "plugin-builder" {
+  context    = "plugin-builder"
+  tags       = ["${GHCR_NAMESPACE}/plugin-builder:latest"]
+  pull       = true
+  cache-from = gha_cache_from("plugin-builder")
+  cache-to   = gha_cache_to("plugin-builder")
+}
+
+group "services" {
+  targets = [
+    "githubactions-service",
+    "githubactions-dovecot",
+    "plugin-builder",
+  ]
+}
+
 group "default" {
   targets = [
     "githubactions-php",
