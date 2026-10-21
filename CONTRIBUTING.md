@@ -127,7 +127,8 @@ docker buildx bake githubactions-php --load           # same image for all the P
 
 `docker-bake.glpi-10.hcl` holds the legacy GLPI 10.0 images of `githubactions-glpi-apache`. It is not loaded by default, use
 `docker buildx bake --file docker-bake.hcl --file docker-bake.glpi-10.hcl githubactions-glpi-apache-legacy`. It will be deleted
-with the GLPI 10.0 end of life.
+with the GLPI 10.0 end of life. Its PHP 7.4, 8.0 and 8.1 images are built on top of the images already published upstream, which
+only exist in `ghcr.io/glpi-project` (variable `GLPI_10_PUBLISHED_NAMESPACE`), so they work on a fork whatever its `GHCR_NAMESPACE`.
 
 The PHP extensions of the PHP images are installed by `githubactions-base/scripts/install-php-extensions.sh`. To add one for
 all the images, add it to `githubactions-base/Dockerfile`, to add one to a single image, call the script from its Dockerfile.

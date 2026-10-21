@@ -8,7 +8,12 @@
 # (and the PHP 7.4, 8.0 and 8.1 images, that are no longer built).
 
 # The PHP 7.4, 8.0 and 8.1 images are no longer built (they have no `-playwright` variant), the already published ones
-# are used.
+# are used. They only exist in the upstream registry, so forks (whose registry is empty) keep using it, whatever their
+# `GHCR_NAMESPACE`.
+variable "GLPI_10_PUBLISHED_NAMESPACE" {
+  default = "ghcr.io/glpi-project"
+}
+
 variable "GLPI_10_PHP_VERSIONS" {
   default = ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"]
 }
@@ -24,7 +29,7 @@ target "githubactions-glpi-apache-legacy" {
   }
   context  = "githubactions-glpi-apache"
   contexts = {
-    base = contains(GLPI_10_PUBLISHED_PHP_VERSIONS, php) ? "docker-image://${GHCR_NAMESPACE}/githubactions-php-apache:${php}" : "target:githubactions-php-apache-playwright-${slug(php)}"
+    base = contains(GLPI_10_PUBLISHED_PHP_VERSIONS, php) ? "docker-image://${GLPI_10_PUBLISHED_NAMESPACE}/githubactions-php-apache:${php}" : "target:githubactions-php-apache-playwright-${slug(php)}"
   }
   args     = {
     GLPI_BRANCH = "10.0/bugfixes"
