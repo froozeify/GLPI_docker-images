@@ -28,8 +28,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  prepare:
+    name: "Prepare"
     runs-on: "ubuntu-26.04"
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v7"
+      - name: "List targets"
+        id: "targets"
+        run: |
+          # One job per target: a GLPI build is heavy (webpack), running them all on the same runner makes composer time out.
+          set -o pipefail
+          targets=$(docker buildx bake --print githubactions-glpi-apache | jq --compact-output --arg group githubactions-glpi-apache '[.group[$group].targets[]]')
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+          echo "$targets"
+
+  build:
+    name: "Build ${{ matrix.target }}"
+    runs-on: "ubuntu-26.04"
+    needs: [prepare]
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.prepare.outputs.targets) }}
     env:
       # Images are only pushed from the upstream repository, forks must opt in with the `PUSH_IMAGES` repository variable
       PUSH: ${{ github.ref == 'refs/heads/main' && (github.repository == 'glpi-project/docker-images' || vars.PUSH_IMAGES == 'true') }}
@@ -59,5 +82,5 @@ jobs:
       - name: "Build and push"
         uses: "docker/bake-action@v7"
         with:
-          targets: "githubactions-glpi-apache"
+          targets: "${{ matrix.target }}"
           push: ${{ env.PUSH == 'true' }}
