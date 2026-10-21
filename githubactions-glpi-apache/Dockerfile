@@ -1,6 +1,5 @@
-ARG BASE_IMAGE
-
-FROM $BASE_IMAGE
+# `base` is provided by `docker-bake.hcl` (the `githubactions-php-apache` image of the matching PHP version).
+FROM base
 
 LABEL \
   org.opencontainers.image.title="GLPI Github Actions PHP/Apache container for GLPI plugins" \
@@ -9,6 +8,8 @@ LABEL \
   org.opencontainers.image.source="git@github.com:glpi-project/docker-images"
 
 ARG GLPI_BRANCH
+# Changes on every build, to always fetch the current state of the GLPI branch (the layers above stay cached).
+ARG CACHE_BUST
 
 RUN \
   # Get target GLPI branch source code.

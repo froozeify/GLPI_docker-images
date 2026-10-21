@@ -142,6 +142,47 @@ target "glpi-development-env" {
 }
 
 #####
+# GLPI plugins images (PHP/Apache image of the matching PHP version with a build of a GLPI branch)
+#####
+function "glpi_apache_tags" {
+  params = [php, version]
+  result = concat(
+    ["${GHCR_NAMESPACE}/githubactions-glpi-apache:php-${php}-glpi-${version}"],
+    version == "11.0.x" && php == LATEST_PHP_VERSION ? ["${GHCR_NAMESPACE}/githubactions-glpi-apache:latest"] : [],
+  )
+}
+
+# GLPI branches with the PHP versions they are built for, expanded to one entry per GLPI branch and PHP version.
+variable "GLPI_APACHE_MATRIX" {
+  default = flatten([
+    for glpi in [
+      { branch = "11.0/bugfixes", version = "11.0.x", php = ["8.2", "8.3", "8.4", "8.5"] },
+      { branch = "12.0/bugfixes", version = "12.0.x", php = ["8.3", "8.4", "8.5"] },
+      { branch = "main", version = "13.0.x", php = ["8.3", "8.4", "8.5"] },
+    ] : [
+      for php in glpi.php : { branch = glpi.branch, version = glpi.version, php = php }
+    ]
+  ])
+}
+
+target "githubactions-glpi-apache" {
+  name     = "githubactions-glpi-apache-glpi-${slug(item.version)}-php-${slug(item.php)}"
+  matrix   = {
+    item = GLPI_APACHE_MATRIX
+  }
+  context  = "githubactions-glpi-apache"
+  contexts = {
+    base = "target:githubactions-php-apache-playwright-${slug(item.php)}"
+  }
+  args     = {
+    GLPI_BRANCH = item.branch
+    CACHE_BUST  = timestamp()
+  }
+  tags     = glpi_apache_tags(item.php, item.version)
+  pull     = true
+}
+
+#####
 # GLPI image (published by digest, the tags are applied afterwards by the `glpi` workflow)
 #####
 
