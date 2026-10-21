@@ -1,0 +1,67 @@
+name: "Github actions service images"
+
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - ".github/workflows/services.yml"
+      - "githubactions-redis/**"
+      - "githubactions-memcached/**"
+      - "githubactions-openldap/**"
+      - "githubactions-dovecot/**"
+      - "plugin-builder/**"
+      - "docker-bake.hcl"
+  pull_request:
+    paths:
+      - ".github/workflows/services.yml"
+      - "githubactions-redis/**"
+      - "githubactions-memcached/**"
+      - "githubactions-openldap/**"
+      - "githubactions-dovecot/**"
+      - "plugin-builder/**"
+      - "docker-bake.hcl"
+  schedule:
+    - cron:  '0 0 * * 1'
+  # Enable manual run
+  workflow_dispatch:
+
+# Cancel the previous run of a pull request when it is updated (other events have a unique group and are never cancelled)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: "ubuntu-26.04"
+    env:
+      # Images are only pushed from the upstream repository, forks must opt in with the `PUSH_IMAGES` repository variable
+      PUSH: ${{ github.ref == 'refs/heads/main' && (github.repository == 'glpi-project/docker-images' || vars.PUSH_IMAGES == 'true') }}
+      # Registry of the images, forks can change it with the `GHCR_NAMESPACE` repository variable
+      GHCR_NAMESPACE: ${{ vars.GHCR_NAMESPACE || 'ghcr.io/glpi-project' }}
+      # Secrets are not available on pull requests coming from forks (and Dependabot)
+      DOCKER_HUB_LOGIN: ${{ secrets.DOCKER_HUB_TOKEN != '' }}
+      GHA_CACHE: "true"
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v7"
+      - name: "Set up Docker Buildx"
+        uses: "docker/setup-buildx-action@v4"
+      - name: "Login to DockerHub"
+        if: ${{ env.DOCKER_HUB_LOGIN == 'true' }}
+        uses: "docker/login-action@v4"
+        with:
+          username: "${{ secrets.DOCKER_HUB_USERNAME }}"
+          password: "${{ secrets.DOCKER_HUB_TOKEN }}"
+      - name: "Login to Github container registry"
+        if: ${{ env.PUSH == 'true' }}
+        uses: "docker/login-action@v4"
+        with:
+          registry: "ghcr.io"
+          username: "${{ secrets.GHCR_USERNAME }}"
+          password: "${{ secrets.GHCR_ACCESS_TOKEN }}"
+      - name: "Build and push"
+        uses: "docker/bake-action@v7"
+        with:
+          targets: "services"
+          push: ${{ env.PUSH == 'true' }}
